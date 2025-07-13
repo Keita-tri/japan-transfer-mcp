@@ -1,24 +1,24 @@
 #!/usr/bin/env node
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { z } from 'zod';
 import { get_encoding } from 'tiktoken';
-// import express from 'express';
-// import cors from 'cors';
 import http from 'http';
 
 import { fetchSuggest, fetchRouteSearch } from './fetcher.js';
 import { parseRouteSearchResult } from './parser.js';
 
+// トークンエンコーダーの初期化
 const encoder = get_encoding('cl100k_base');
 
-const server = new McpServer({
-    name: "japan-transfer-mcp",
-    version: "0.1.0"
-});
-
 /**
- * 経路検索結果を自然な文章形式でフォーマットする
+ * 経路検索結果を自然な文章形式でフォーマットする関数
+ * @param result - パースされた経路検索結果
+ * @param searchUrl - 検索に使用されたURL
+ * @param from - 出発地
+ * @param to - 到着地
+ * @param datetime - 検索日時
+ * @returns フォーマットされたMarkdown文字列
  */
 function formatRouteSearchResponse(result: any, searchUrl: string, from: string, to: string, datetime: string): string {
     const lines: string[] = [];
@@ -88,92 +88,41 @@ function formatRouteSearchResponse(result: any, searchUrl: string, from: string,
         if (route.segments && route.segments.length > 0) {
             lines.push('### 📍 経路詳細');
             
-            route.segments.forEach((segment: any, segIndex: number) => {
+            route.segments.forEach((segment: any) => {
                 if (segment.type === 'station' && segment.station) {
                     const station = segment.station;
                     let stationLine = '';
                     
-                    // 駅タイプによるアイコン
                     switch (station.type) {
-                        case 'start':
-                            stationLine = `🚩 **出発**: ${station.name}`;
-                            break;
-                        case 'end':
-                            stationLine = `🏁 **到着**: ${station.name}`;
-                            break;
-                        case 'transfer':
-                            stationLine = `🔄 **乗換**: ${station.name}`;
-                            break;
-                        default:
-                            stationLine = `📍 ${station.name}`;
+                        case 'start': stationLine = `🚩 **出発**: ${station.name}`; break;
+                        case 'end': stationLine = `🏁 **到着**: ${station.name}`; break;
+                        case 'transfer': stationLine = `🔄 **乗換**: ${station.name}`; break;
+                        default: stationLine = `📍 ${station.name}`;
                     }
-                    
-                    // プラットフォーム情報
-                    if (station.platform) {
-                        stationLine += ` (${station.platform})`;
-                    }
-                    
-                    // 天気情報
+                    if (station.platform) stationLine += ` (${station.platform})`;
                     if (station.weather) {
-                        const weatherIcons: Record<string, string> = {
-                            'sunny': '☀️',
-                            'cloudy': '☁️',
-                            'rainy': '🌧️',
-                            'snowy': '❄️'
-                        };
-                        const weatherIcon = weatherIcons[station.weather.condition] || '🌤️';
-                        stationLine += ` ${weatherIcon}`;
+                        const weatherIcons: Record<string, string> = { 'sunny': '☀️', 'cloudy': '☁️', 'rainy': '🌧️', 'snowy': '❄️' };
+                        stationLine += ` ${weatherIcons[station.weather.condition] || '🌤️'}`;
                     }
-                    
                     lines.push(stationLine);
                     
                 } else if (segment.type === 'transport' && segment.transport) {
                     const transport = segment.transport;
-                    let transportLine = '';
+                    const transportIcons: Record<string, string> = { 'train': '🚃', 'subway': '🚇', 'bus': '🚌', 'car': '🚗', 'taxi': '🚕', 'walk': '🚶' };
+                    let transportLine = `${transportIcons[transport.type] || '🚃'} ${transport.lineName}`;
                     
-                    // 交通手段タイプによるアイコン
-                    const transportIcons: Record<string, string> = {
-                        'train': '🚃',
-                        'subway': '🚇',
-                        'bus': '🚌',
-                        'car': '🚗',
-                        'taxi': '🚕',
-                        'walk': '🚶'
-                    };
-                    const transportIcon = transportIcons[transport.type] || '🚃';
-                    
-                    transportLine = `${transportIcon} ${transport.lineName}`;
-                    
-                    // 時刻情報
-                    if (transport.timeInfo) {
-                        const timeText = [];
-                        if (transport.timeInfo.departure && transport.timeInfo.arrival) {
-                            timeText.push(`${transport.timeInfo.departure}-${transport.timeInfo.arrival}`);
-                        }
-                        if (transport.timeInfo.duration) {
-                            timeText.push(`${transport.timeInfo.duration}分`);
-                        }
-                        if (timeText.length > 0) {
-                            transportLine += ` (${timeText.join(', ')})`;
-                        }
-                    }
-                    
-                    // 運賃情報
-                    if (transport.fare) {
-                        transportLine += ` 💰${transport.fare}円`;
-                    }
-                    
-                    // 距離情報
-                    if (transport.distance) {
-                        transportLine += ` 📏${transport.distance}`;
-                    }
+                    const timeText = [];
+                    if (transport.timeInfo?.departure && transport.timeInfo?.arrival) timeText.push(`${transport.timeInfo.departure}-${transport.timeInfo.arrival}`);
+                    if (transport.timeInfo?.duration) timeText.push(`${transport.timeInfo.duration}分`);
+                    if (timeText.length > 0) transportLine += ` (${timeText.join(', ')})`;
+                    if (transport.fare) transportLine += ` 💰${transport.fare}円`;
+                    if (transport.distance) transportLine += ` 📏${transport.distance}`;
                     
                     lines.push(`  ${transportLine}`);
                 }
             });
         }
         
-        // 注意事項
         if (route.routeNotices && route.routeNotices.length > 0) {
             lines.push('');
             lines.push('### ⚠️ 注意事項');
@@ -182,17 +131,15 @@ function formatRouteSearchResponse(result: any, searchUrl: string, from: string,
             });
         }
         
-        lines.push('');
-        lines.push('---');
-        lines.push('');
+        lines.push('\n---');
     });
     
     return lines.join('\n');
 }
 
-
-
-
+/**
+ * MCPサーバーのメインクラス
+ */
 class JapanTransferServer {
     private server: McpServer;
     private activeTransports: Map<http.ServerResponse, SSEServerTransport> = new Map();
@@ -205,10 +152,10 @@ class JapanTransferServer {
         this.registerTools();
     }
 
-
+    /**
+     * MCPサーバーにツールを登録する
+     */
     private registerTools() {
-
-
         this.server.registerTool("search_station_by_name",
             {
                 title: "Search for stations by name",
@@ -220,198 +167,114 @@ class JapanTransferServer {
                 }
             },
             async ({ query, maxTokens, onlyName }) => {
+                console.log(`[Tool] search_station_by_name called with query: ${query}`);
                 try {
-                    const response = await fetchSuggest({
-                        query,
-                        format: "json",
-                    })
-                    const railwayPlaces = response.R?.map((place) => {
-                        if (onlyName) {
-                            return place.poiName
-                        }
-                        // placeの中身を自然な日本語文章で展開し、citycodeも含めて変数を埋め込む
-                        // 例: "東京駅（東京都千代田区, citycode: 13101, 緯度: 35.681167, 経度: 139.767125, よみ: とうきょうえき）"
-                        return `${place.poiName}（${place.prefName}${place.cityName ? place.cityName : ''}, citycode: ${place.cityCode ?? '不明'}, 緯度: ${place.location.lat}, 経度: ${place.location.lon}, よみ: ${place.poiYomi}）`;
-                    })
-                    const busPlaces = response.B?.map((place) => {
-                        if (onlyName) {
-                            return place.poiName
-                        }
-                        return `${place.poiName}（${place.prefName}${place.cityName ? place.cityName : ''}, citycode: ${place.cityCode ?? '不明'}, 緯度: ${place.location.lat}, 経度: ${place.location.lon}, よみ: ${place.poiYomi}）`;
-                    })
-                    const spots = response.S?.map((place) => {
-                        if (onlyName) {
-                            return place.poiName
-                        }
-                        return `${place.poiName}（${place.prefName}${place.cityName ? place.cityName : ''}${place.address ? ' ' + place.address : ''}, citycode: ${place.cityCode ?? '不明'}, 緯度: ${place.location.lat}, 経度: ${place.location.lon}, よみ: ${place.poiYomi}）`;
-                    })
-                    // railwayPlaces, busPlaces, spots を順に交互に配列化（R1,B1,S1,R2,B2,S2,...のような感じで）
-                    const maxLen = Math.max(
-                        railwayPlaces ? railwayPlaces.length : 0,
-                        busPlaces ? busPlaces.length : 0,
-                        spots ? spots.length : 0
-                    );
+                    const response = await fetchSuggest({ query, format: "json" });
+                    const railwayPlaces = response.R?.map(p => onlyName ? p.poiName : `${p.poiName}（${p.prefName}${p.cityName || ''}, citycode: ${p.cityCode ?? '不明'}, よみ: ${p.poiYomi}）`) || [];
+                    const busPlaces = response.B?.map(p => onlyName ? p.poiName : `${p.poiName}（${p.prefName}${p.cityName || ''}, citycode: ${p.cityCode ?? '不明'}, よみ: ${p.poiYomi}）`) || [];
+                    const spots = response.S?.map(p => onlyName ? p.poiName : `${p.poiName}（${p.prefName}${p.cityName || ''}${p.address || ''}, citycode: ${p.cityCode ?? '不明'}, よみ: ${p.poiYomi}）`) || [];
+
                     const merged = [];
+                    const maxLen = Math.max(railwayPlaces.length, busPlaces.length, spots.length);
                     for (let i = 0; i < maxLen; i++) {
-                        if (railwayPlaces && railwayPlaces[i] !== undefined) merged.push(railwayPlaces[i]);
-                        if (busPlaces && busPlaces[i] !== undefined) merged.push(busPlaces[i]);
-                        if (spots && spots[i] !== undefined) merged.push(spots[i]);
+                        if (railwayPlaces[i]) merged.push(railwayPlaces[i]);
+                        if (busPlaces[i]) merged.push(busPlaces[i]);
+                        if (spots[i]) merged.push(spots[i]);
                     }
-                    // merged配列を上から順に,区切りで連結し、maxTokensの範囲内で切り詰める
-                    // maxTokensが未指定の場合は全て連結
+                    
                     let result = "";
-                    let tokenCount = 0;
-                    let max = typeof maxTokens === "number" ? maxTokens : Infinity;
-                    for (let i = 0; i < merged.length; i++) {
-                        const next = (result ? "," : "") + merged[i];
-                        const tokens = encoder.encode(result + next);
-                        if (tokens.length > max) break;
-                        result += (result ? "," : "") + merged[i];
-                        tokenCount = tokens.length;
+                    const max = typeof maxTokens === "number" ? maxTokens : Infinity;
+                    for (const item of merged) {
+                        const next = (result ? "," : "") + item;
+                        if (encoder.encode(result + next).length > max) break;
+                        result += next;
                     }
-                    return {
-                        content: [{
-                            type: "text",
-                            text: result
-                        }]
-                    }
+                    console.log(`[Tool] search_station_by_name succeeded. Returning ${merged.length} results.`);
+                    return { content: [{ type: "text", text: result }] };
                 } catch (error) {
-                    return {
-                        content: [{
-                            type: "text",
-                            text: `Contact retrieval error: ${error instanceof Error ? error.message : String(error)}`
-                        }],
-                        isError: true
-                    };
+                    console.error("[Tool Error] search_station_by_name failed:", error);
+                    return { content: [{ type: "text", text: `Contact retrieval error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
                 }
             }
         );
 
-        server.registerTool("search_route_by_station_name",
+        this.server.registerTool("search_route_by_station_name",
             {
                 title: "Search for routes by station name",
                 description: "Search for routes by station name",
                 inputSchema: {
                     from: z.string().describe("The name of the departure station. The value must be a name obtained from search_station_by_name."),
                     to: z.string().describe("The name of the arrival station. The value must be a name obtained from search_station_by_name."),
-                    datetimeType: z.enum(["departure", "arrival","first","last"]).describe("The type of datetime to use for the search"),
+                    datetimeType: z.enum(["departure", "arrival", "first", "last"]).describe("The type of datetime to use for the search"),
                     datetime: z.string().optional().describe("The datetime to use for the search. Format: YYYY-MM-DD HH:MM:SS. If not provided, the current time in Japan will be used."),
                     maxTokens: z.number().optional().describe("The maximum number of tokens to return"),
                 },
             },
             async ({ from, to, datetimeType, datetime, maxTokens }) => {
+                console.log(`[Tool] search_route_by_station_name called: ${from} -> ${to}`);
                 try {
                     if (!datetime) {
-                        // 日本の時刻（Asia/Tokyo）でISO形式（YYYY-MM-DD HH:MM:SS）にする
                         const now = new Date();
                         const jpNow = new Date(now.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }));
                         const pad = (n: number) => n.toString().padStart(2, "0");
                         datetime = `${jpNow.getFullYear()}-${pad(jpNow.getMonth() + 1)}-${pad(jpNow.getDate())} ${pad(jpNow.getHours())}:${pad(jpNow.getMinutes())}:${pad(jpNow.getSeconds())}`;
                     }
-                    // 日時の解析
+                    
                     const datePart = datetime.split(" ")[0];
                     const timePart = datetime.split(" ")[1];
                     const [year, month, day] = datePart.split("-").map(Number);
                     const [hour, minute] = timePart.split(":").map(Number);
                     
-                    // 駅タイプの判定（簡単な判定）
                     const isFromBusStop = from.includes("〔") || from.includes("［");
                     const isToBusStop = to.includes("〔") || to.includes("［");
                     
                     const response = await fetchRouteSearch({
-                        eki1: from,
-                        eki2: to,
-                        Dyy: year,
-                        Dmm: month,
-                        Ddd: day,
-                        Dhh: hour,
-                        Dmn1: Math.floor(minute / 10), // 分の10の位
-                        Dmn2: minute % 10, // 分の1の位
-                        Cway: (() => {
-                            switch (datetimeType) {
-                                case "departure":
-                                    return 0;
-                                case "arrival":
-                                    return 1;
-                                case "first":
-                                    return 2;
-                                case "last":
-                                    return 3;
-                                default:
-                                    return 0;
-                            }
-                        })(),
-                        // デフォルト値を補完
-                        via_on: -1, // 経由駅なし
-                        Cfp: 1, // ICカード利用料金
-                        Czu: 2, // ジパング倶楽部
-                        C7: 1, // 通勤定期
-                        C2: 0, // 飛行機利用: おまかせ
-                        C3: 0, // 高速バス利用: おまかせ
-                        C1: 0, // 有料特急: おまかせ
-                        cartaxy: 1, // 車・タクシー検索: 有効
-                        bikeshare: 1, // シェアサイクル検索: 有効
-                        sort: "time", // 到着が早い・出発が遅い順
-                        C4: 5, // 座席種別: おまかせ
-                        C5: 0, // 優先列車: のぞみ優先
-                        C6: 2, // 乗換時間: 標準
-                        S: "検索", // 検索ボタン
-                        Cmap1: "", // UI関連
-                        rf: "nr", // リファラ
-                        pg: 0, // ページ番号
-                        eok1: isFromBusStop ? "B-" : "R-", // 駅1: 鉄道駅またはバス停
-                        eok2: isToBusStop ? "B-" : "R-", // 駅2: 鉄道駅またはバス停
-                        Csg: 1 // 検索開始フラグ
-                    })
-                    // HTMLレスポンスを解析
-                    const parsedResult = parseRouteSearchResult(response.data);
+                        eki1: from, eki2: to, Dyy: year, Dmm: month, Ddd: day, Dhh: hour,
+                        Dmn1: Math.floor(minute / 10), Dmn2: minute % 10,
+                        Cway: { "departure": 0, "arrival": 1, "first": 2, "last": 3 }[datetimeType] as 0 | 1 | 2 | 3,
+                        via_on: -1, Cfp: 1, Czu: 2, C7: 1, C2: 0, C3: 0, C1: 0, cartaxy: 1,
+                        bikeshare: 1, sort: "time", C4: 5, C5: 0, C6: 2, S: "検索", Cmap1: "",
+                        rf: "nr", pg: 0, eok1: isFromBusStop ? "B-" : "R-",
+                        eok2: isToBusStop ? "B-" : "R-", Csg: 1
+                    });
                     
-                    // 自然な文章でレスポンスを構築
+                    const parsedResult = parseRouteSearchResult(response.data);
                     let resultText = formatRouteSearchResponse(parsedResult, response.url, from, to, datetime);
                     
-                    // maxTokensによる制限
                     if (maxTokens) {
                         const tokens = encoder.encode(resultText);
                         if (tokens.length > maxTokens) {
-                            // トークン数が制限を超える場合は、ルートの数を減らす
-                            const limitedResult = {
-                                ...parsedResult,
-                                routes: parsedResult.routes.slice(0, Math.max(1, Math.floor(parsedResult.routes.length * maxTokens / tokens.length)))
-                            };
+                            const limitedResult = { ...parsedResult, routes: parsedResult.routes.slice(0, 1) };
                             resultText = formatRouteSearchResponse(limitedResult, response.url, from, to, datetime);
                         }
                     }
                     
-                    return {
-                        content: [{
-                            type: "text",
-                            text: resultText
-                        }]
-                    }
+                    console.log("[Tool] search_route_by_station_name succeeded.");
+                    return { content: [{ type: "text", text: resultText }] };
                 } catch (error) {
-                    return {
-                        content: [{
-                            type: "text",
-                            text: `Route search error: ${error instanceof Error ? error.message : String(error)}`
-                        }],
-                        isError: true
-                    };
+                    console.error("[Tool Error] search_route_by_station_name failed:", error);
+                    return { content: [{ type: "text", text: `Route search error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
                 }
             }
         );
-        
     }
 
-
-
+    /**
+     * HTTPサーバーを起動し、リクエストを待ち受ける
+     * @param port - リッスンするポート番号
+     */
     public async start(port: number) {
         const httpServer = http.createServer(async (req, res) => {
+            console.log(`[HTTP] Request received: ${req.method} ${req.url}`);
+            
             // CORSヘッダーを追加
             res.setHeader('Access-Control-Allow-Origin', '*');
             res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
             res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
+            // プリフライトリクエストへの対応
             if (req.method === 'OPTIONS') {
+                console.log("[HTTP] Responding to OPTIONS preflight request.");
                 res.writeHead(204);
                 res.end();
                 return;
@@ -419,25 +282,24 @@ class JapanTransferServer {
 
             // SSE接続用の /events エンドポイント
             if (req.method === "GET" && req.url === "/events") {
-                console.log("New SSE connection established.");
+                console.log("[SSE] New SSE connection established.");
                 const transport = new SSEServerTransport("/messages", res);
                 this.activeTransports.set(res, transport);
                 
                 await this.server.connect(transport);
 
                 res.on("close", () => {
-                    console.log("SSE connection closed.");
+                    console.log("[SSE] SSE connection closed.");
                     this.activeTransports.delete(res);
                 });
                 return;
             }
 
-            // メッセージ受信用
+            // クライアントからのメッセージ受信用エンドポイント
             if (req.method === "POST" && req.url?.startsWith("/messages")) {
+                console.log("[POST /messages] Message received.");
                 let transport;
-                // SSEレスポンスオブジェクトから対応するトランスポートを見つける
                 for (const [savedRes, savedTransport] of this.activeTransports.entries()) {
-                     // ここは本来もっと厳密にクライアントを識別すべきですが、簡単のため最初に見つかったものを使います
                     if (!savedRes.closed) {
                         transport = savedTransport;
                         break;
@@ -445,33 +307,38 @@ class JapanTransferServer {
                 }
 
                 if (!transport) {
+                    console.error("[POST /messages] No active SSE transport found.");
                     res.writeHead(400).end("No active SSE transport found for this message.");
                     return;
                 }
                 
                 await transport.handlePostMessage(req, res);
+                console.log("[POST /messages] Message handled.");
                 return;
             }
             
-            // ルートパスへのアクセス（ヘルスチェック用）
+            // Railwayヘルスチェック用エンドポイント
             if (req.url === "/") {
+                console.log("[HTTP] Health check request received.");
                 res.writeHead(200, { 'Content-Type': 'text/plain' });
                 res.end("MCP Server is running.");
                 return;
             }
 
+            console.log(`[HTTP] 404 Not Found for ${req.method} ${req.url}`);
             res.writeHead(404).end("Not Found");
         });
 
         httpServer.listen(port, '0.0.0.0', () => {
-            console.log(`Server is listening on port ${port}`);
-            console.log(`SSE Endpoint: http://localhost:${port}/events`);
+            console.log(`[SYSTEM] Server is listening on port ${port}. Ready to accept all incoming connections.`);
+            console.log(`[SYSTEM] SSE Endpoint: http://localhost:${port}/events`);
         });
     }
 }
 
-
 // --- サーバーの起動 ---
 const port = parseInt(process.env.PORT || "3000", 10);
 const mcpServer = new JapanTransferServer();
-mcpServer.start(port).catch(console.error);
+mcpServer.start(port).catch(error => {
+    console.error("[SYSTEM] Failed to start server:", error);
+});
