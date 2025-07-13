@@ -415,6 +415,13 @@ app.post("/mcp", async (req, res) => {
   }
 });
 
+
+// Railwayのヘルスチェック用エンドポイント
+app.get("/", (req, res) => {
+  res.status(200).send("OK");
+});
+
+
 // GETリクエストには 405 Method Not Allowed を返す
 app.get("/mcp", (req, res) => {
   res.writeHead(405, { 'Content-Type': 'application/json' }).end(
@@ -436,6 +443,9 @@ app.delete("/mcp", (req, res) => {
     })
   );
 });
+
+
+
 
 
 // サーバーを起動

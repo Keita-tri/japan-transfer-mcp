@@ -11,7 +11,7 @@ import {
   CO2Info,
   WeatherInfo,
   StationService,
-  RouteNotice,
+  RouteNotice
 } from './type.js';
 
 
