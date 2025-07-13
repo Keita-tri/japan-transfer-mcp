@@ -229,7 +229,9 @@ app.post("/mcp", async (req, res) => {
 
 // POST以外のメソッドを処理するエンドポイント
 app.all("/mcp", (req, res) => {
+    // POSTリクエストはこのハンドラに到達する前に処理されるため、ここに来るのはPOST以外
     console.log(`[MCP] ${req.method} /mcp received. Responding 405 Method Not Allowed.`);
+    res.setHeader('Allow', 'POST'); // 許可するメソッドをヘッダーで示す
     res.status(405).json({
       jsonrpc: "2.0",
       error: { code: -32000, message: `Method ${req.method} not allowed. Please use POST.` },
