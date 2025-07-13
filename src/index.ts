@@ -437,10 +437,11 @@ app.delete("/mcp", (req, res) => {
   );
 });
 
+
 // サーバーを起動
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}/mcp`);
+const port = parseInt(process.env.PORT || "3000", 10);
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Server is listening on port ${port}. Ready to accept connections.`);
 });
 
 // Graceful shutdown
