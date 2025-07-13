@@ -9,7 +9,7 @@ import cors from 'cors';
 import { fetchSuggest, fetchRouteSearch } from './fetcher.js';
 import { parseRouteSearchResult } from './parser.js';
 
-// --- ユーティリティとフォーマット関数 (変更なし) ---
+// --- ユーティリティとフォーマット関数 ---
 const encoder = get_encoding('cl100k_base');
 
 function formatRouteSearchResponse(result: any, searchUrl: string, from: string, to: string, datetime: string): string {
@@ -37,6 +37,7 @@ function formatRouteSearchResponse(result: any, searchUrl: string, from: string,
         if (route.fareInfo?.total) basicInfo.push(`💰 運賃: ${route.fareInfo.total.toLocaleString()}円`);
         if (route.totalDistance) basicInfo.push(`📏 距離: ${route.totalDistance}km`);
         if (basicInfo.length > 0) lines.push(basicInfo.join(' | '));
+        
         if (route.tags && route.tags.length > 0) {
             const tagText = route.tags.map((tag: any) => {
                 switch (tag.type) {
@@ -49,10 +50,13 @@ function formatRouteSearchResponse(result: any, searchUrl: string, from: string,
             }).join(' ');
             lines.push(`🏷️ ${tagText}`);
         }
+        
         if (route.co2Info) {
             lines.push(`🌱 CO2排出量: ${route.co2Info.amount}${route.co2Info.reductionRate ? ` (${route.co2Info.comparison}${route.co2Info.reductionRate}削減)` : ''}`);
         }
+        
         lines.push('');
+        
         if (route.segments && route.segments.length > 0) {
             lines.push('### 📍 経路詳細');
             route.segments.forEach((segment: any) => {
@@ -240,8 +244,8 @@ const httpServer = app.listen(port, '0.0.0.0', () => {
 });
 
 // --- Graceful Shutdown ---
-const shutdown = async () => {
-    console.log("[SYSTEM] Shutdown signal received. Closing server...");
+const shutdown = async (signal: string) => {
+    console.log(`[SYSTEM] ${signal} signal received. Shutting down gracefully.`);
     await server.close();
     httpServer.close(() => {
         console.log('[SYSTEM] HTTP server closed.');
@@ -249,5 +253,5 @@ const shutdown = async () => {
     });
 };
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on("SIGINT", () => shutdown('SIGINT'));
+process.on("SIGTERM", () => shutdown('SIGTERM'));
