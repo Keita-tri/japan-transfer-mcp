@@ -9,31 +9,24 @@ import cors from 'cors';
 import { fetchSuggest, fetchRouteSearch } from './fetcher.js';
 import { parseRouteSearchResult } from './parser.js';
 
-// --- ユーティリティとフォーマット関数 ---
+// --- ユーティリティとフォーマット関数 (変更なし) ---
 const encoder = get_encoding('cl100k_base');
 
 function formatRouteSearchResponse(result: any, searchUrl: string, from: string, to: string, datetime: string): string {
     const lines: string[] = [];
-    
-    // ヘッダー情報
     lines.push(`🚃 **${from}** から **${to}** への経路検索結果`);
     lines.push(`📅 検索日時: ${datetime}`);
     lines.push(`🔗 検索URL: ${searchUrl}`);
     lines.push(`⏰ 検索実行時刻: ${result.searchTime}`);
     lines.push('');
-    
     if (!result.routes || result.routes.length === 0) {
         lines.push('❌ 該当する経路が見つかりませんでした。');
         return lines.join('\n');
     }
-    
     lines.push(`📋 **${result.routes.length}件の経路が見つかりました**`);
     lines.push('');
-    
-    // 各経路の詳細
-    result.routes.forEach((route: any, index: number) => {
+    result.routes.forEach((route: any) => {
         lines.push(`## 🛤️ 経路${route.routeNumber}: ${route.timeInfo.departure} → ${route.timeInfo.arrival}`);
-        
         const basicInfo = [];
         if (route.totalTime) {
             const hours = Math.floor(route.totalTime / 60);
@@ -44,7 +37,6 @@ function formatRouteSearchResponse(result: any, searchUrl: string, from: string,
         if (route.fareInfo?.total) basicInfo.push(`💰 運賃: ${route.fareInfo.total.toLocaleString()}円`);
         if (route.totalDistance) basicInfo.push(`📏 距離: ${route.totalDistance}km`);
         if (basicInfo.length > 0) lines.push(basicInfo.join(' | '));
-        
         if (route.tags && route.tags.length > 0) {
             const tagText = route.tags.map((tag: any) => {
                 switch (tag.type) {
@@ -57,13 +49,10 @@ function formatRouteSearchResponse(result: any, searchUrl: string, from: string,
             }).join(' ');
             lines.push(`🏷️ ${tagText}`);
         }
-        
         if (route.co2Info) {
             lines.push(`🌱 CO2排出量: ${route.co2Info.amount}${route.co2Info.reductionRate ? ` (${route.co2Info.comparison}${route.co2Info.reductionRate}削減)` : ''}`);
         }
-        
         lines.push('');
-        
         if (route.segments && route.segments.length > 0) {
             lines.push('### 📍 経路詳細');
             route.segments.forEach((segment: any) => {
@@ -92,13 +81,6 @@ function formatRouteSearchResponse(result: any, searchUrl: string, from: string,
                 }
             });
         }
-        
-        if (route.routeNotices && route.routeNotices.length > 0) {
-            lines.push('\n### ⚠️ 注意事項');
-            route.routeNotices.forEach((notice: any) => {
-                lines.push(`- ${notice.title}${notice.description && notice.description !== notice.title ? `: ${notice.description}` : ''}`);
-            });
-        }
         lines.push('\n---');
     });
     return lines.join('\n');
@@ -124,17 +106,10 @@ server.registerTool("search_station_by_name",
         console.log(`[Tool] search_station_by_name called with query: "${query}"`);
         try {
             const response = await fetchSuggest({ query, format: "json" });
-            const railwayPlaces = response.R?.map(p => onlyName ? p.poiName : `${p.poiName}（${p.prefName}${p.cityName || ''}, citycode: ${p.cityCode ?? '不明'}, よみ: ${p.poiYomi}）`) || [];
-            const busPlaces = response.B?.map(p => onlyName ? p.poiName : `${p.poiName}（${p.prefName}${p.cityName || ''}, citycode: ${p.cityCode ?? '不明'}, よみ: ${p.poiYomi}）`) || [];
-            const spots = response.S?.map(p => onlyName ? p.poiName : `${p.poiName}（${p.prefName}${p.cityName || ''}${p.address || ''}, citycode: ${p.cityCode ?? '不明'}, よみ: ${p.poiYomi}）`) || [];
-
-            const merged = [];
-            const maxLen = Math.max(railwayPlaces.length, busPlaces.length, spots.length);
-            for (let i = 0; i < maxLen; i++) {
-                if (railwayPlaces[i]) merged.push(railwayPlaces[i]);
-                if (busPlaces[i]) merged.push(busPlaces[i]);
-                if (spots[i]) merged.push(spots[i]);
-            }
+            const railwayPlaces = response.R?.map(p => onlyName ? p.poiName : `${p.poiName}(${p.prefName}${p.cityName || ''})`) || [];
+            const busPlaces = response.B?.map(p => onlyName ? p.poiName : `${p.poiName}(${p.prefName}${p.cityName || ''})`) || [];
+            const spots = response.S?.map(p => onlyName ? p.poiName : `${p.poiName}(${p.prefName}${p.cityName || ''})`) || [];
+            const merged = [...railwayPlaces, ...busPlaces, ...spots];
             
             let result = "";
             const max = typeof maxTokens === "number" ? maxTokens : Infinity;
@@ -143,7 +118,7 @@ server.registerTool("search_station_by_name",
                 if (encoder.encode(result + next).length > max) break;
                 result += next;
             }
-            console.log(`[Tool] search_station_by_name succeeded. Returning ${merged.length} results.`);
+            console.log(`[Tool] search_station_by_name succeeded.`);
             return { content: [{ type: "text", text: result }] };
         } catch (error) {
             console.error("[Tool Error] search_station_by_name failed:", error);
@@ -157,10 +132,10 @@ server.registerTool("search_route_by_station_name",
         title: "Search for routes by station name",
         description: "Search for routes by station name",
         inputSchema: {
-            from: z.string().describe("The name of the departure station. The value must be a name obtained from search_station_by_name."),
-            to: z.string().describe("The name of the arrival station. The value must be a name obtained from search_station_by_name."),
+            from: z.string().describe("The name of the departure station."),
+            to: z.string().describe("The name of the arrival station."),
             datetimeType: z.enum(["departure", "arrival", "first", "last"]).describe("The type of datetime to use for the search"),
-            datetime: z.string().optional().describe("The datetime to use for the search. Format: YYYY-MM-DD HH:MM:SS. If not provided, the current time in Japan will be used."),
+            datetime: z.string().optional().describe("The datetime for the search. Format: YYYY-MM-DD HH:MM:SS."),
             maxTokens: z.number().optional().describe("The maximum number of tokens to return"),
         },
     },
@@ -194,12 +169,9 @@ server.registerTool("search_route_by_station_name",
             const parsedResult = parseRouteSearchResult(response.data);
             let resultText = formatRouteSearchResponse(parsedResult, response.url, from, to, datetime);
             
-            if (maxTokens) {
-                const tokens = encoder.encode(resultText);
-                if (tokens.length > maxTokens) {
-                    const limitedResult = { ...parsedResult, routes: parsedResult.routes.slice(0, 1) };
-                    resultText = formatRouteSearchResponse(limitedResult, response.url, from, to, datetime);
-                }
+            if (maxTokens && encoder.encode(resultText).length > maxTokens) {
+                const limitedResult = { ...parsedResult, routes: parsedResult.routes.slice(0, 1) };
+                resultText = formatRouteSearchResponse(limitedResult, response.url, from, to, datetime);
             }
             
             console.log("[Tool] search_route_by_station_name succeeded.");
@@ -228,29 +200,19 @@ server.connect(transport).catch(error => {
 
 // Railwayヘルスチェック用エンドポイント
 app.get("/", (req, res) => {
-  console.log("[HEALTH] Health check endpoint '/' was hit. Responding with 200 OK.");
+  console.log(`[HEALTH] GET / received. Responding 200 OK.`);
   res.status(200).send("OK");
 });
 
 // MCPメインエンドポイント
-app.all("/mcp", async (req, res) => {
-  console.log(`[MCP] Received a ${req.method} request for /mcp`);
-  
-  if (req.method !== 'POST') {
-    console.log(`[MCP] Method not allowed: ${req.method}. Responding with 405.`);
-    return res.status(405).json({
-      jsonrpc: "2.0",
-      error: { code: -32000, message: `Method ${req.method} not allowed. Please use POST.` },
-      id: null,
-    });
-  }
-
+app.post("/mcp", async (req, res) => {
+  console.log(`[MCP] POST /mcp received.`);
   try {
     console.log("[MCP] Request body:", JSON.stringify(req.body, null, 2));
     await transport.handleRequest(req, res, req.body);
     console.log("[MCP] Request handled successfully.");
   } catch (error) {
-    console.error("[MCP] Error handling request:", error);
+    console.error("[MCP] Error handling POST request:", error);
     if (!res.headersSent) {
       res.status(500).json({
         jsonrpc: "2.0",
@@ -261,28 +223,31 @@ app.all("/mcp", async (req, res) => {
   }
 });
 
+// POST以外のメソッドを処理するエンドポイント
+app.all("/mcp", (req, res) => {
+    console.log(`[MCP] ${req.method} /mcp received. Responding 405 Method Not Allowed.`);
+    res.status(405).json({
+      jsonrpc: "2.0",
+      error: { code: -32000, message: `Method ${req.method} not allowed. Please use POST.` },
+      id: null,
+    });
+});
+
 // --- サーバーの起動 ---
 const port = parseInt(process.env.PORT || "3000", 10);
-
 const httpServer = app.listen(port, '0.0.0.0', () => {
-  console.log(`[SYSTEM] Server is listening on port ${port}. Ready to accept all incoming connections.`);
+  console.log(`[SYSTEM] Server is listening on port ${port}. Ready for connections.`);
 });
 
 // --- Graceful Shutdown ---
-process.on("SIGINT", async () => {
-  console.log("[SYSTEM] SIGINT signal received. Shutting down gracefully.");
-  await server.close();
-  httpServer.close(() => {
-    console.log('[SYSTEM] HTTP server closed.');
-    process.exit(0);
-  });
-});
-
-process.on("SIGTERM", async () => {
-    console.log("[SYSTEM] SIGTERM signal received. Shutting down gracefully.");
+const shutdown = async () => {
+    console.log("[SYSTEM] Shutdown signal received. Closing server...");
     await server.close();
     httpServer.close(() => {
-      console.log('[SYSTEM] HTTP server closed.');
-      process.exit(0);
+        console.log('[SYSTEM] HTTP server closed.');
+        process.exit(0);
     });
-});
+};
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
